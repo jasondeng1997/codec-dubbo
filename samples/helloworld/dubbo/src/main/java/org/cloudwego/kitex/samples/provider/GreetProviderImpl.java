@@ -17,13 +17,19 @@
  * limitations under the License.
  */
 
-package hessian2
+package org.cloudwego.kitex.samples.provider;
 
-import hessian "github.com/apache/dubbo-go-hessian2"
+import org.cloudwego.kitex.samples.api.*;
 
-const (
-	NULL = hessian.BC_NULL
+public class GreetProviderImpl implements GreetProvider {
+    @Override
+    public String Greet(String req) throws Exception {
+        return req;
+    }
 
-	HESSIAN_ARGS_TYPE_TAG        = "hessian.argsType"
-	HESSIAN_JAVA_METHOD_NAME_TAG = "JavaMethodName"
-)
+    @Override
+    public GreetResponse GreetWithStruct(GreetRequest req) throws Exception {
+        GreetResponse resp = new GreetResponse("Hello "+req.getReq());
+        return resp;
+    }
+}

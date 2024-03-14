@@ -17,13 +17,28 @@
  * limitations under the License.
  */
 
-package hessian2
+package java
 
-import hessian "github.com/apache/dubbo-go-hessian2"
+import (
+	"time"
 
-const (
-	NULL = hessian.BC_NULL
-
-	HESSIAN_ARGS_TYPE_TAG        = "hessian.argsType"
-	HESSIAN_JAVA_METHOD_NAME_TAG = "JavaMethodName"
+	hessian2_exception "github.com/kitex-contrib/codec-dubbo/pkg/hessian2/exception"
 )
+
+type Object = interface{}
+
+func NewObject() *Object {
+	return new(Object)
+}
+
+type Date = time.Time
+
+func NewDate() *Date {
+	return new(Date)
+}
+
+type Exception = hessian2_exception.Exception
+
+func NewException(detailMessage string) *Exception {
+	return hessian2_exception.NewException(detailMessage)
+}

@@ -28,3 +28,5 @@ output/*
 # Vscode files
 .vscode
 
+# Maven generated files
+/samples/helloworld/dubbo/target

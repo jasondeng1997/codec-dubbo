@@ -17,13 +17,26 @@
  * limitations under the License.
  */
 
-package hessian2
+package org.cloudwego.kitex.samples.provider;
 
-import hessian "github.com/apache/dubbo-go-hessian2"
+import org.apache.dubbo.config.ProtocolConfig;
+import org.apache.dubbo.config.RegistryConfig;
+import org.apache.dubbo.config.ServiceConfig;
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
+import org.cloudwego.kitex.samples.api.GreetProvider;
 
-const (
-	NULL = hessian.BC_NULL
+public class Application {
 
-	HESSIAN_ARGS_TYPE_TAG        = "hessian.argsType"
-	HESSIAN_JAVA_METHOD_NAME_TAG = "JavaMethodName"
-)
+    public static void main(String[] args) {
+        ServiceConfig<GreetProvider> service = new ServiceConfig<>();
+        service.setInterface(GreetProvider.class);
+        service.setRef(new GreetProviderImpl());
+
+        DubboBootstrap.getInstance()
+                .application("first-dubbo-provider")
+                .protocol(new ProtocolConfig("dubbo", 21001))
+                .service(service)
+                .start()
+                .await();
+    }
+}

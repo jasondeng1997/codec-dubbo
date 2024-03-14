@@ -17,13 +17,18 @@
  * limitations under the License.
  */
 
-package hessian2
+package org.cloudwego.kitex.samples.api;
 
-import hessian "github.com/apache/dubbo-go-hessian2"
+import java.io.Serializable;
 
-const (
-	NULL = hessian.BC_NULL
+public class GreetRequest implements Serializable {
+    String req;
 
-	HESSIAN_ARGS_TYPE_TAG        = "hessian.argsType"
-	HESSIAN_JAVA_METHOD_NAME_TAG = "JavaMethodName"
-)
+    public GreetRequest(String req) {
+        this.req = req;
+    }
+
+    public String getReq() {
+        return req;
+    }
+}

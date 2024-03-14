@@ -21,8 +21,11 @@ package dubbo
 
 import (
 	"context"
-	"errors"
 	"fmt"
+
+	hessian2_exception "github.com/kitex-contrib/codec-dubbo/pkg/hessian2/exception"
+
+	"github.com/kitex-contrib/codec-dubbo/registries"
 
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/codec"
@@ -34,11 +37,15 @@ import (
 var _ remote.Codec = (*DubboCodec)(nil)
 
 // DubboCodec NewDubboCodec creates the dubbo codec.
-type DubboCodec struct{}
+type DubboCodec struct {
+	opt         *Options
+	methodCache hessian2.MethodCache
+}
 
 // NewDubboCodec creates a new codec instance.
-func NewDubboCodec() *DubboCodec {
-	return &DubboCodec{}
+func NewDubboCodec(opts ...Option) *DubboCodec {
+	o := newOptions(opts)
+	return &DubboCodec{opt: o}
 }
 
 // Name codec name
@@ -97,20 +104,24 @@ func (m *DubboCodec) encodeRequestPayload(ctx context.Context, message remote.Me
 
 	service := &dubbo_spec.Service{
 		ProtocolVersion: dubbo_spec.DEFAULT_DUBBO_PROTOCOL_VERSION,
-		// todo: should be message.RPCInfo().Invocation.ServiceName
-		Path: message.RPCInfo().To().ServiceName(),
-		// todo: kitex mapping
-		Version: "",
-		Method:  message.RPCInfo().Invocation().MethodName(),
-		Timeout: message.RPCInfo().Config().RPCTimeout(),
-		// todo: kitex mapping
-		Group: "",
+		Path:            m.opt.JavaClassName,
+		Version:         message.RPCInfo().To().DefaultTag(registries.DubboServiceVersionKey, ""),
+		Method:          message.RPCInfo().Invocation().MethodName(),
+		Timeout:         message.RPCInfo().Config().RPCTimeout(),
+		Group:           message.RPCInfo().To().DefaultTag(registries.DubboServiceGroupKey, ""),
 	}
+	methodAnno := m.getMethodAnnotation(message)
+
+	// if a method name annotation exists, update the method name to the annotation value.
+	if methodName, exists := methodAnno.GetMethodName(); exists {
+		service.Method = methodName
+	}
+
 	if err = m.messageServiceInfo(ctx, service, encoder); err != nil {
 		return nil, err
 	}
 
-	if err = m.messageData(message, encoder); err != nil {
+	if err = m.messageData(message, methodAnno, encoder); err != nil {
 		return nil, err
 	}
 
@@ -173,12 +184,13 @@ func (m *DubboCodec) encodeExceptionPayload(ctx context.Context, message remote.
 	if !ok {
 		return nil, fmt.Errorf("%v exception does not implement Error", data)
 	}
-	if exception, ok := data.(hessian2.Throwabler); ok {
+	// exception is wrapped by kerrors.DetailedError
+	if exception, ok := hessian2_exception.FromError(errRaw); ok {
 		if err := encoder.Encode(exception); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := encoder.Encode(hessian2.NewException(errRaw.Error())); err != nil {
+		if err := encoder.Encode(hessian2_exception.NewException(errRaw.Error())); err != nil {
 			return nil, err
 		}
 	}
@@ -221,12 +233,13 @@ func (m *DubboCodec) buildDubboHeader(message remote.Message, status dubbo_spec.
 	}
 }
 
-func (m *DubboCodec) messageData(message remote.Message, e iface.Encoder) error {
+func (m *DubboCodec) messageData(message remote.Message, methodAnno *hessian2.MethodAnnotation, e iface.Encoder) error {
 	data, ok := message.Data().(iface.Message)
 	if !ok {
 		return fmt.Errorf("invalid data: not hessian2.MessageWriter")
 	}
-	types, err := dubbo_spec.GetTypes(data)
+
+	types, err := m.methodCache.GetTypes(data, methodAnno)
 	if err != nil {
 		return err
 	}
@@ -261,6 +274,16 @@ func (m *DubboCodec) messageAttachment(ctx context.Context, service *dubbo_spec.
 		service.Timeout,
 	)
 	return e.Encode(attachment)
+}
+
+func (m *DubboCodec) getMethodAnnotation(message remote.Message) *hessian2.MethodAnnotation {
+	methodKey := message.ServiceInfo().ServiceName + "." + message.RPCInfo().To().Method()
+	if m.opt.MethodAnnotations != nil {
+		if t, ok := m.opt.MethodAnnotations[methodKey]; ok {
+			return t
+		}
+	}
+	return nil
 }
 
 // Unmarshal decode method
@@ -315,14 +338,16 @@ func (m *DubboCodec) decodeRequestBody(ctx context.Context, header *dubbo_spec.D
 	if err := service.Decode(decoder); err != nil {
 		return err
 	}
-	if serviceName := message.ServiceInfo().ServiceName; service.Path != serviceName {
-		return fmt.Errorf("dubbo requested Path: %s, kitex ServiceName: %s", service.Path, serviceName)
+
+	if name := m.opt.JavaClassName; service.Path != name {
+		return fmt.Errorf("dubbo requested Path: %s, kitex service specified JavaClassName: %s", service.Path, name)
 	}
 
 	// decode payload
-	// there is no need to make use of types
-	if _, err = decoder.Decode(); err != nil {
+	if types, err := decoder.Decode(); err != nil {
 		return err
+	} else if method, exists := m.opt.MethodNames[service.Method+types.(string)]; exists {
+		service.Method = method
 	}
 	if err := codec.NewDataIfNeeded(service.Method, message); err != nil {
 		return err
@@ -438,8 +463,5 @@ func processAttachments(decoder iface.Decoder, message remote.Message) error {
 
 func readBody(header *dubbo_spec.DubboHeader, in remote.ByteBuffer) ([]byte, error) {
 	length := int(header.DataLength)
-	if in.ReadableLen() < length {
-		return nil, errors.New("invalid dubbo package with body length being less than header specified")
-	}
 	return in.Next(length)
 }
